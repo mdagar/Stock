@@ -28,6 +28,8 @@ def add_technical_indicators(data):
    data['CMF'] = ta.ADOSC(data['High'], data['Low'], data['Close'], data['Volume'], fastperiod=3, slowperiod=10)
    data['PSAR'] = ta.SAR(data['High'], data['Low'], acceleration=0.02, maximum=0.2)
    data['Ichimoku_SpanA'], data['Ichimoku_SpanB'] = ta.MINMAX(data['Close'], timeperiod=52)
+   data['PLUS_DI'] = ta.PLUS_DI(data['High'], data['Low'], data['Close'], timeperiod=14)
+   data['MINUS_DI'] = ta.MINUS_DI(data['High'], data['Low'], data['Close'], timeperiod=14)
 
 
 def get_candlestickpatterns(data):
@@ -99,6 +101,12 @@ def calcuate_signal(data):
 
     data['Ichimoku_Buy'] = np.where(data['Close'] > ((data['Ichimoku_SpanA'] + data['Ichimoku_SpanB']) / 2), 1, 0)
     data['Ichimoku_Sell'] = np.where(data['Close'] < ((data['Ichimoku_SpanA'] + data['Ichimoku_SpanB']) / 2), -1, 0)
+    
+    data['DMI_Buy'] = np.where(data['PLUS_DI'] > data['MINUS_DI'], 1, 0)
+    data['DMI_Sell'] = np.where(data['PLUS_DI'] < data['MINUS_DI'], -1, 0)
+
+    data['ADX_Buy'] = np.where(data['ADX'] > 25, 1, 0)
+    data['ADX_Sell'] = np.where(data['ADX'] < 20, -1, 0)
 
     #data.to_csv('data.csv', index=False)  # Saves the DataFrame as a CSV file without including the index
 
@@ -136,7 +144,7 @@ def calculate_signalstrength(data):
         'SMA': None,'RSI': None,
         'MACD': None,'BB': None, 'OBV': None,'STOCH': None, 'WilliamsR': None, 'CCI': None,
         'ROC': None, 'Candlestick': None,'ADX': None, 'CMF': None,'Ichimoku': None, 'PSAR': None,
-        'StockSentiment': None
+        'StockSentiment': None, 'DMI':None
     }
     # Calculate the weight based on the number of indicators
     weight = 1.0 / len(indicator_weights)
@@ -160,6 +168,8 @@ def calculate_signalstrength(data):
         indicator_weights['CMF'] * (data['CMF_Buy'] + data['CMF_Sell'])+
         indicator_weights['Ichimoku'] * (data['Ichimoku_Buy'] + data['Ichimoku_Sell'])+
         indicator_weights['PSAR'] * (data['PSAR_Buy'] + data['PSAR_Sell'])+
+        indicator_weights['ADX'] * (data['ADX_Buy'] + data['ADX_Sell'])+
+        indicator_weights['DMI'] * (data['DMI_Buy'] + data['DMI_Sell'])+
         indicator_weights['Candlestick'] * (data['CDL_Buy'] + data['CDL_Sell'])
     )
 
@@ -170,18 +180,18 @@ def cleardata(data):
     data['Low'] = data['Low'].round(2)
     data.dropna(subset=['High', 'Low', 'Close'], inplace=True)
 
-def Analysis(symbol):
-
-    end = (datetime.today() + timedelta(days=1)).strftime('%Y-%m-%d')
-    start = (datetime.today() - timedelta(days=300)).strftime('%Y-%m-%d')
-    
+def Analysis(symbol,index_data,start,end):
+   
     #sentimentscore= GetSentimentScore(symbol)
-    #start = '2020-03-01'
+    #start = '2020-03-01',
     #end = '2023-05-12'
 
+
     data = yf.download(symbol, progress=False, prepost=False, start=start, end=end)
-    
     data = data.reset_index()
+      
+    data =calculate_alpha_beta(data,index_data,start,end)
+
     data.rename(columns={'index': 'Date'}, inplace=True)
     add_technical_indicators(data)
 
@@ -191,7 +201,7 @@ def Analysis(symbol):
     cleardata(data)
     return data
 
-def ScanSignals(data,symbol,strenghtfilter):
+def ScanSignals(data,symbol,strenghtfilter,scantype):
 
     data['Date'] = pd.to_datetime(data['Date'])
     data = data.sort_values(by='Date')
@@ -203,6 +213,8 @@ def ScanSignals(data,symbol,strenghtfilter):
 
     # Latest Signal on data
     last_row_signal_strength = data['Signal_strength'].iloc[-1]
+    alpha = data['Alpha'].iloc[-1]
+    beta = data['Beta'].iloc[-1]
     #print(strong_signals[['Date','NewsSentiment','Signal_strength','Close','NextDayClose','PercentChange','High','Low']].tail(10))
     min_signal_strength= strong_signals["Signal_strength"].min()
     
@@ -227,16 +239,20 @@ def ScanSignals(data,symbol,strenghtfilter):
     data.loc[(data['SMA_20'] < data['SMA_50']), 'Trend'] = 'Bearish'
     data.loc[:, 'Symbol'] = symbol
 
+    # selected_columns1 = ['Symbol','Date','NewsSentiment','Signal_strength','MinSignalStrength','Close','High','Low','Resistance','Support','52High','52Low','VWAP','Trend']        
+    # df_selected = data[selected_columns1].tail(1).copy()
+    # print(data[selected_columns1].tail(1))
+
     today = datetime.today().strftime('%Y-%m-%d')
-    filepath=f'Analysis/result_{today}.csv'
+    filepath=f'Analysis/{scantype}_result_{today}.csv'
+
     if os.path.exists(filepath):
         existingdata = pd.read_csv(filepath)
-
-    if(last_row_signal_strength >= min_signal_strength and last_row_signal_strength>=strenghtfilter ):
+    
+    if(last_row_signal_strength >= min_signal_strength and last_row_signal_strength>=strenghtfilter and alpha>0.0015 and beta>0.80):
 
         # calculate_target_price_technical_analysis(data)
-                
-        selected_columns = ['Symbol','Date','NewsSentiment','Signal_strength','MinSignalStrength','Close','High','Low','Resistance','Support','52High','52Low','VWAP','Trend']        
+        selected_columns = ['Symbol','Date','NewsSentiment','Signal_strength','Close','High','Low','Resistance','Support','52High','52Low','Trend','Alpha','Beta']        
         df_selected = data[selected_columns].tail(1).copy()
         print(data[selected_columns].tail(1))
         print("-----------------------------------------------------------------------------------------------------")
@@ -252,20 +268,34 @@ def ScanSignals(data,symbol,strenghtfilter):
             #for now check only date and symbol later based on startey we will update the filter 
 
 
-def calculate_target_price_technical_analysis(data):
+def calculate_alpha_beta(stock_data, index_data, start_date, end_date):
 
-    # stock = yf.Ticker(ticker)
-    # hist = stock.history(period="1y") # Get historical data for the past year
-    hist= data.copy() 
-    hist = hist.reset_index()
-    hist = hist[['Date', 'Close']]
-    hist['Date'] = hist.index
-    model = LinearRegression()
-    model.fit(hist.Date.values.reshape(-1, 1), hist.Close.values)
-    target_price = model.predict(np.array([hist.Date.values[-1] + 1]).reshape(-1, 1))[0]
-    data['TargetP']= target_price
-    #print(f'Target Price {ticker}: using technical analysis {target_price}')
-    
+    stock_data_temp= stock_data.tail(20)
+    # Use 'Close' price to calculate returns
+    stock_returns = stock_data_temp['Close'].pct_change()[1:]
+    index_returns = index_data['Close'].pct_change()[1:]
+    # print(stock_data)
+    # print(index_data)
+
+    stock_returns = stock_returns.values.reshape(-1,1)
+    index_returns = index_returns.values.reshape(-1,1)
+
+    # Create a Linear Regression object
+    linear_regression = LinearRegression()
+
+    # Fit linear model using the train data set
+    linear_regression.fit(index_returns, stock_returns)
+
+    # Get the slope (Beta) and intercept (Alpha) of the regression line
+    beta = linear_regression.coef_[0][0]
+    alpha = linear_regression.intercept_[0]
+
+    # Add alpha and beta to the dataframe
+    stock_data['Alpha'] = alpha
+    stock_data['Beta'] = beta
+
+    return stock_data
+
 
 def showothersentiments():
     print(GetSentimentScore("Buiness"))
@@ -279,37 +309,41 @@ def ExtractOtherSeniments():
     ExtractSentiment("World","World",newsextractcount)
 
 
+
+
 def main():
 
     start_time = time.time()
-    extractnews= True
-    runAnalysis= False
+    runAnalysis= True
     extraxtglobalnews= False
-    strenghtfilter=0.2
-
-    scantype="Indianstocks"
+    strenghtfilter=0.20
+    scantype="Nifty100"
+    index='^CNX100'
 
     with open('s.json') as file:
       stocklist = json.load(file)
-
     newsextractcount= 5
 
     if(extraxtglobalnews):
         ExtractOtherSeniments()
 
-    if(extractnews):
+    if(not runAnalysis):
         for stock in stocklist[scantype]:
             print(f"getting news of {stock['name']} .")
             ExtractSentiment(stock["symbol"],stock["name"],newsextractcount)
 
     if(runAnalysis):
+        end_date = (datetime.today() + timedelta(days=1)).strftime('%Y-%m-%d')
+        start_date = (datetime.today() - timedelta(days=252)).strftime('%Y-%m-%d')
+        index_data = yf.download(index, progress=False, prepost=False,start=start_date, end=end_date)
+        index_data= index_data.tail(20)
+        index_data = index_data.reset_index()
         for stock in stocklist[scantype]:
                 symbol = stock["symbol"]
                 #print(symbol)
                 Query = stock["name"]
-                df= Analysis(symbol)   
-                ScanSignals(df,symbol,strenghtfilter)
-                #calculate_target_price_technical_analysis(symbol)
+                df= Analysis(symbol,index_data,start_date,end_date)   
+                ScanSignals(df,symbol,strenghtfilter,scantype)
     
     end_time = time.time()
     # Calculate total time taken in seconds

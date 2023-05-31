@@ -169,5 +169,5 @@ def GetSentimentScore(ticker):
             df = pd.DataFrame(list(reader))
             #df = df[df['relevant'] == 'True']
     except FileNotFoundError:
-        print("Error")
+        print(f" {ticker} News file not available")
     return  df[['date','title','sentiment']]
