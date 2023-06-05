@@ -8,7 +8,7 @@ from sklearn.linear_model import LinearRegression
 import json
 import os
 import time
-
+from utility import *
 
 #Technical Indicators
 def add_technical_indicators(data):
@@ -30,7 +30,6 @@ def add_technical_indicators(data):
    data['Ichimoku_SpanA'], data['Ichimoku_SpanB'] = ta.MINMAX(data['Close'], timeperiod=52)
    data['PLUS_DI'] = ta.PLUS_DI(data['High'], data['Low'], data['Close'], timeperiod=14)
    data['MINUS_DI'] = ta.MINUS_DI(data['High'], data['Low'], data['Close'], timeperiod=14)
-
 
 def get_candlestickpatterns(data):
     candlestick_patterns = {
@@ -110,7 +109,6 @@ def calcuate_signal(data):
 
     #data.to_csv('data.csv', index=False)  # Saves the DataFrame as a CSV file without including the index
 
-
 def getnewssentiments(data,ticker):
 
     sentimentdata= GetSentimentScore(ticker)
@@ -136,7 +134,6 @@ def getnewssentiments(data,ticker):
     data['NewsSentiment'].fillna(0, inplace=True)
     data['NewsSentiment'] = data['NewsSentiment'].round(2)
     return data
-
 
 def calculate_signalstrength(data):
     
@@ -185,8 +182,7 @@ def Analysis(symbol,index_data,start,end):
     #sentimentscore= GetSentimentScore(symbol)
     #start = '2020-03-01',
     #end = '2023-05-12'
-
-
+    
     data = yf.download(symbol, progress=False, prepost=False, start=start, end=end)
     data = data.reset_index()
       
@@ -249,7 +245,7 @@ def ScanSignals(data,symbol,strenghtfilter,scantype):
     if os.path.exists(filepath):
         existingdata = pd.read_csv(filepath)
     
-    if(last_row_signal_strength >= min_signal_strength and last_row_signal_strength>=strenghtfilter and alpha>0.0015 and beta>0.80):
+    if(last_row_signal_strength >= min_signal_strength and last_row_signal_strength>=strenghtfilter and alpha>0.0015 and beta>0.50):
 
         # calculate_target_price_technical_analysis(data)
         selected_columns = ['Symbol','Date','NewsSentiment','Signal_strength','Close','High','Low','Resistance','Support','52High','52Low','Trend','Alpha','Beta']        
@@ -267,35 +263,37 @@ def ScanSignals(data,symbol,strenghtfilter,scantype):
             #check_columns = ['Symbol','Date', 'NewsSentiment', 'Signal_strength']
             #for now check only date and symbol later based on startey we will update the filter 
 
-
 def calculate_alpha_beta(stock_data, index_data, start_date, end_date):
 
-    stock_data_temp= stock_data.tail(20)
-    # Use 'Close' price to calculate returns
-    stock_returns = stock_data_temp['Close'].pct_change()[1:]
-    index_returns = index_data['Close'].pct_change()[1:]
-    # print(stock_data)
-    # print(index_data)
+    try:
+        stock_data_temp= stock_data.tail(20)
+        # Use 'Close' price to calculate returns
+        stock_returns = stock_data_temp['Close'].pct_change()[1:]
+        index_returns = index_data['Close'].pct_change()[1:]
+        # print(stock_data)
+        # print(index_data)
 
-    stock_returns = stock_returns.values.reshape(-1,1)
-    index_returns = index_returns.values.reshape(-1,1)
+        stock_returns = stock_returns.values.reshape(-1,1)
+        index_returns = index_returns.values.reshape(-1,1)
 
-    # Create a Linear Regression object
-    linear_regression = LinearRegression()
+        # Create a Linear Regression object
+        linear_regression = LinearRegression()
 
-    # Fit linear model using the train data set
-    linear_regression.fit(index_returns, stock_returns)
+        # Fit linear model using the train data set
+        linear_regression.fit(index_returns, stock_returns)
 
-    # Get the slope (Beta) and intercept (Alpha) of the regression line
-    beta = linear_regression.coef_[0][0]
-    alpha = linear_regression.intercept_[0]
+        # Get the slope (Beta) and intercept (Alpha) of the regression line
+        beta = linear_regression.coef_[0][0]
+        alpha = linear_regression.intercept_[0]
+    except:
+        alpha= 1
+        beta = 1
 
     # Add alpha and beta to the dataframe
     stock_data['Alpha'] = alpha
     stock_data['Beta'] = beta
 
     return stock_data
-
 
 def showothersentiments():
     print(GetSentimentScore("Buiness"))
@@ -308,50 +306,46 @@ def ExtractOtherSeniments():
     ExtractSentiment("India","India",newsextractcount)
     ExtractSentiment("World","World",newsextractcount)
 
-
-
-
 def main():
 
     start_time = time.time()
-    runAnalysis= True
+    runAnalysis= get_variable("RunAnalysis")
     extraxtglobalnews= False
     strenghtfilter=0.20
-    scantype="Nifty100"
-    index='^CNX100'
 
-    with open('s.json') as file:
-      stocklist = json.load(file)
+    index, bucket = get_scan_type()
+    filename =f'StockIndex/{bucket}.json'
+    stocklist = get_stock_list(filename)
+
     newsextractcount= 5
 
     if(extraxtglobalnews):
         ExtractOtherSeniments()
 
     if(not runAnalysis):
-        for stock in stocklist[scantype]:
-            print(f"getting news of {stock['name']} .")
+        for stock in stocklist[bucket]:
             ExtractSentiment(stock["symbol"],stock["name"],newsextractcount)
 
     if(runAnalysis):
         end_date = (datetime.today() + timedelta(days=1)).strftime('%Y-%m-%d')
         start_date = (datetime.today() - timedelta(days=252)).strftime('%Y-%m-%d')
-        index_data = yf.download(index, progress=False, prepost=False,start=start_date, end=end_date)
+
+
+        index_data = yf.download(index, progress=False,start=start_date, end=end_date)
+        
         index_data= index_data.tail(20)
         index_data = index_data.reset_index()
-        for stock in stocklist[scantype]:
+        for stock in stocklist[bucket]:
                 symbol = stock["symbol"]
                 #print(symbol)
                 Query = stock["name"]
                 df= Analysis(symbol,index_data,start_date,end_date)   
-                ScanSignals(df,symbol,strenghtfilter,scantype)
+                ScanSignals(df,symbol,strenghtfilter,bucket)
     
     end_time = time.time()
-    # Calculate total time taken in seconds
     total_time = end_time - start_time
-    # Convert total time to minutes and seconds
     minutes, seconds = divmod(total_time, 60)
     print(f"The process took {int(minutes)} minute(s) and {int(seconds)} seconds.")
 
 if __name__ == "__main__":
     main()
-

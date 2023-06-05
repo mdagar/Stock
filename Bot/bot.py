@@ -6,78 +6,31 @@ import os
 import numpy as np
 from pytz import timezone
 import talib as ta
+from utility import *
 
 # Initialize a DataFrame to hold trade information
 trades = pd.DataFrame(columns=['Symbol', 'Date', 'Action', 'Price', 'Shares','TradeValue','Taxes'])
 # Set the fixed amount to trade
-current_balance = 1000000
-investpercentage= 0.1
+current_balance = 30000000
+investpercentage= 0.05
 amount_per_trade= current_balance*investpercentage
 portfolio = {}
-ChecktotalBalance= False
-scantype="Nifty100"
+ChecktotalBalance= get_variable("CheckBalance")
+
+index, bucket = get_scan_type()
 stop_loss_multiplier = 0.98
 sell_target_multiplier = 1.01
 today = datetime.today().strftime('%Y-%m-%d')
-year_month = datetime.today().strftime('%Y-%m')
+year_month = datetime.today().strftime('%Y')
 prev_ema = {}
 time_period= 15
-sleeptime= 90
+sleeptime= get_variable("sleeptime")
 
 # file paths
-filepath=f'Analysis/{scantype}_result_{today}.csv'
-portfolio_filepath = f'Portfolios/{scantype}_portfolio.csv'
-balance_filename = f"Balance/{scantype}_balance.txt"
-tradefile=f'Trades/{scantype}_trades_{year_month}.csv'
-
-
-def load_balance(current_balance):
-    if os.path.exists(balance_filename):
-        with open(balance_filename, 'r') as file:
-            current_balance = float(file.read())
-    return current_balance
-
-def load_portfolio():
-    portfolio={}
-    if os.path.exists(portfolio_filepath):
-        portfolio_df = pd.read_csv(portfolio_filepath, index_col=0)
-        portfolio = portfolio_df.to_dict(orient='index')
-    else:
-        portfolio={}
-    return portfolio
-
-
-
-def scan_and_sleep(isscanning, stocknumber, totalstocks,sleep_time=60):
-    if(isscanning):
-        print(f"Scanning stock {stocknumber}/{totalstocks}", end ='\r')
-    else:
-        for remaining in range(sleep_time, 0, -5):
-            print(f"Next Scan in .. {remaining}s ", end='\r')
-            time.sleep(5)
-
-def validatePortfolio(portfolio,hist_data):
-    for symbol in portfolio.keys():
-        if symbol not in hist_data['Symbol'].values:
-            try:
-                ticker = yf.Ticker(symbol)
-                data = ticker.history(period="2d", interval="15m")
-                data.reset_index(inplace=True)
-                data['Symbol'] = symbol
-                hist_data = pd.concat([hist_data, data])
-            except Exception as e:
-                print(f"An error occurred while fetching history for {symbol}: {e}")
-
-
-def calculate_balance(portfolio, current_balance):
-    total_value = 0
-    for symbol in portfolio.keys():
-        print(symbol)
-        ticker = yf.Ticker(symbol)
-        current_price = ticker.history(period="1d")["Close"].iloc[-1]
-        total_value += portfolio[symbol]['Quantity'] * current_price
-    print(f"Cash: {current_balance} Stock {total_value} Total Balance is: {total_value+current_balance}")
-
+filepath=f'Analysis/{bucket}_result_{today}.csv'
+portfolio_filepath = f'Portfolios/{bucket}_portfolio.csv'
+balance_filename = f"Balance/balance.txt"
+tradefile=f'Trades/trades_{year_month}.csv'
 
 def save_trade(trades):
     # Save trade information to CSV with today's date appended to the filename
@@ -113,11 +66,12 @@ def get_buy_sell_signals(data, row, transaction_type):
     is_dmi_bullish = latest_dip > latest_din
     is_dmi_bearish = latest_dip < latest_din
     is_adx_strong = latest_adx > 25
-    is_adx_bearish = latest_adx < 20
     latestprice = data["Close"].iloc[-1]
     latest_ema_short = data['EMA_short'].iloc[-1]
     latest_ema_long = data['EMA_long'].iloc[-1]
     latest_rsi = data['RSI'].iloc[-1]
+
+    #print(f"Stock {row['Symbol']}, DIP: {latest_dip} DIN: {latest_din} ADX: {latest_adx}")
 
     if row['Symbol'] in prev_ema:
         slope_ema_short = (latest_ema_short - prev_ema[row['Symbol']]) / time_period
@@ -126,25 +80,19 @@ def get_buy_sell_signals(data, row, transaction_type):
         prev_ema[row['Symbol']] = latest_ema_short
 
     if(transaction_type=="Sell"):
+
         is_rsi_overbought = latest_rsi > 70
         is_price_above_sell_target = latestprice >= portfolio[row['Symbol']]['sell_target']
         is_price_below_stop_loss = latestprice <= portfolio[row['Symbol']]['stop_loss']
-        is_ema_crossdown = latest_ema_short < latest_ema_long
-        is_slope_down = slope_ema_short < 0        
+        is_ema_crossdown = latest_ema_short < latest_ema_long   
+        is_slope_down = slope_ema_short < 0           
         sell_condition1 = (is_rsi_overbought or is_price_above_sell_target or is_price_below_stop_loss or is_ema_crossdown) and is_slope_down
-        sell_condition = (sell_condition1 and is_dmi_bearish and is_adx_bearish)
+        sell_condition = (sell_condition1 and is_dmi_bearish and is_adx_strong)
 
-        # if(row['Symbol'] == "HEROMOTOCO.NS"):
-        #     print("\n")
-        #     print(is_rsi_overbought)
-        #     print(is_price_above_sell_target)
-        #     print(is_ema_crossdown)
-        #     print(is_price_below_stop_loss)
-        #     print(is_slope_down)
-        #     print(is_dmi_bearish)
-        #     print(is_adx_strong)
-        #     print(sell_condition1)
-        #     print(sell_condition)
+        # print(f"RSI over: {is_rsi_overbought} , Price above Tgt: {is_price_above_sell_target} below stoploss: {is_price_below_stop_loss} ")
+        # print(f"Ema down {is_ema_crossdown} ")
+        # print(f"----- {sell_condition}")
+
         result= sell_condition
     else:
         # Define buy conditions
@@ -152,15 +100,10 @@ def get_buy_sell_signals(data, row, transaction_type):
         is_ema_cross = latest_ema_short > latest_ema_long
         is_rsi_less_than_30 = latest_rsi < 30 
         is_slope_up = slope_ema_short > 0
-        # print(row['Symbol'])
-        # print(is_rsi_in_range)
-        # print(is_ema_cross)
-        # print(is_slope_up)
         buy_condition1 = (is_rsi_in_range and is_ema_cross) or is_rsi_less_than_30
-        buy_condition = buy_condition1 and is_dmi_bullish and is_adx_strong and is_slope_up  and  row['Close'] < latestprice
+        buy_condition = buy_condition1 and is_dmi_bullish and is_adx_strong  and  row['Close'] < latestprice # and is_slope_up
         result = buy_condition
     return result
-
 
 # Add constants for each type of charge
 BROKERAGE_RATE = 0.0003 
@@ -168,7 +111,6 @@ SEBI_CHARGE_RATE = 0.00000001 # 0.000001%
 TRANSACTION_CHARGE_RATE = 0.0000375
 GST_RATE = 0.18  # 18%
 STAMP_DUTY_RATE = 0.00015 
-
 
 def calculate_charges(amount, transaction_type):
     brokerage = amount * BROKERAGE_RATE
@@ -179,7 +121,6 @@ def calculate_charges(amount, transaction_type):
     stamp_duty = amount * STAMP_DUTY_RATE if transaction_type == 'buy' else 0
     total_charges = brokerage + sebi_charge + gst + transaction_charge + stamp_duty
     return total_charges
-
 
 def get_fibonacci_levels(df: pd.DataFrame) -> dict:
 
@@ -198,32 +139,36 @@ def get_fibonacci_levels(df: pd.DataFrame) -> dict:
     }
     return levels
 
+def add_portfolio_symbols(scaned_symbols):
+    for symbol in portfolio.keys():
+        if symbol not in [item['Symbol'] for item in scaned_symbols]:
+            scaned_symbols.append({'Symbol': symbol, 'Close': 0})
+    return scaned_symbols
 
 #Validate portfolio
-current_balance=load_balance(current_balance)
-portfolio=load_portfolio()
-hist_data = pd.read_csv(filepath)
-validatePortfolio(portfolio,hist_data)
-totalstocks= len(hist_data)
+current_balance=load_balance(balance_filename,current_balance)
+portfolio=load_portfolio(portfolio_filepath)
+analysed_symbols = pd.read_csv(filepath)
 
+dict_selected = analysed_symbols[['Symbol', 'Close']].to_dict('records')
+final_symbols=add_portfolio_symbols(dict_selected)
+totalstocks= len(final_symbols)
 
 while True:
     try:     
-        # market_status = get_market_status()
-        # print(market_status)
-        # break;
 
         if(ChecktotalBalance): 
             calculate_balance(portfolio,current_balance)
             break
         
         # Iterate over the data
-        for index, row in hist_data.iterrows():
+        for index, row in enumerate(final_symbols):
         
             scan_and_sleep(True,index,totalstocks,sleeptime)
 
             ticker = yf.Ticker(row['Symbol'])
             data = ticker.history(period="2d",interval="15m")
+            #print(data.tail())
             data =calculate_technical_indicators(data)
 
             latestprice = data["Close"].iloc[-1]

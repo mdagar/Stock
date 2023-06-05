@@ -1,0 +1,26 @@
+{
+  "ScanType":[
+    {
+      "bucket":"Nifty100",
+      "Index":"^CNX100",
+      "IsEnabled":true
+    },
+    {
+        "bucket":"NiftyMicroCap250",
+        "Index":"NIFTY_MICROCAP250.NS",
+        "IsEnabled":true
+      },
+      {
+        "bucket":"Custom",
+        "Index":"^CNX100",
+        "IsEnabled":false
+      }   
+],
+"Variables":[
+{
+  "CheckBalance":false,
+  "RunAnalysis":true,
+  "sleeptime":180
+}
+]
+}
