@@ -1,50 +1,38 @@
 import pandas as pd
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 import yfinance as yf
-import os
-import numpy as np
-from pytz import timezone
 import talib as ta
 from utility import *
+import multiprocessing
 
 # Initialize a DataFrame to hold trade information
 trades = pd.DataFrame(columns=['Symbol', 'Date', 'Action', 'Price', 'Shares','TradeValue','Taxes'])
-# Set the fixed amount to trade
-current_balance = 30000000
-investpercentage= 0.05
-amount_per_trade= current_balance*investpercentage
-portfolio = {}
-ChecktotalBalance= get_variable("CheckBalance")
 
-index, bucket = get_scan_type()
-stop_loss_multiplier = 0.98
-sell_target_multiplier = 1.01
-today = datetime.today().strftime('%Y-%m-%d')
-year_month = datetime.today().strftime('%Y')
-prev_ema = {}
-time_period= 15
+investpercentage= 0.05
+portfolio = {}
+
+
+ChecktotalBalance= get_variable("CheckBalance")
+#index, buckets = get_scan_type()
+stop_loss_multiplier = get_variable("stop_loss_multiplier")
+sell_target_multiplier = get_variable("sell_target_multiplier")
 sleeptime= get_variable("sleeptime")
 
+# Add constants for each type of charge
+BROKERAGE_RATE = get_variable("BROKERAGE_RATE")  
+SEBI_CHARGE_RATE = get_variable("SEBI_CHARGE_RATE")
+TRANSACTION_CHARGE_RATE = get_variable("TRANSACTION_CHARGE_RATE")
+GST_RATE = get_variable("GST_RATE")
+STAMP_DUTY_RATE = get_variable("STAMP_DUTY_RATE")
+#balance_filename = f"Balance/balance.txt"
+today = datetime.today().strftime('%Y-%m-%d')
+year_month = datetime.today().strftime('%Y')
+#tradefile=f'Trades/trades{}_{year_month}.csv'
+prev_ema = {}
+time_period= 15
+
 # file paths
-filepath=f'Analysis/{bucket}_result_{today}.csv'
-portfolio_filepath = f'Portfolios/{bucket}_portfolio.csv'
-balance_filename = f"Balance/balance.txt"
-tradefile=f'Trades/trades_{year_month}.csv'
-
-def save_trade(trades):
-    # Save trade information to CSV with today's date appended to the filename
-    if os.path.exists(tradefile):
-        existing_trades = pd.read_csv(tradefile)
-        all_trades = pd.concat([existing_trades, trades], ignore_index=True)
-        all_trades.to_csv(tradefile, index=False)
-    else:
-        trades.to_csv(tradefile,index=False)     
-
-def save_balance(current_balance):
-    # Save the updated balance to the file
-    with open(balance_filename, 'w') as file:
-       file.write(str(current_balance))
+filepath=f'Analysis/result_{today}.csv'
 
 def calculate_technical_indicators(data):
     data['RSI'] = ta.RSI(data['Close'], timeperiod=14)
@@ -56,7 +44,7 @@ def calculate_technical_indicators(data):
     data['ADXR'] = ta.ADXR(data['High'], data['Low'], data['Close'], timeperiod=14)
     return data
 
-def get_buy_sell_signals(data, row, transaction_type):
+def get_buy_sell_signals(data, row, transaction_type,portfolio):
 
     result = True
     latest_dip = data['DIp'].iloc[-1]
@@ -87,7 +75,7 @@ def get_buy_sell_signals(data, row, transaction_type):
         is_ema_crossdown = latest_ema_short < latest_ema_long   
         is_slope_down = slope_ema_short < 0           
         sell_condition1 = (is_rsi_overbought or is_price_above_sell_target or is_price_below_stop_loss or is_ema_crossdown) and is_slope_down
-        sell_condition = (sell_condition1 and is_dmi_bearish and is_adx_strong)
+        sell_condition = (sell_condition1 and is_dmi_bearish and is_adx_strong) or is_price_below_stop_loss
 
         # print(f"RSI over: {is_rsi_overbought} , Price above Tgt: {is_price_above_sell_target} below stoploss: {is_price_below_stop_loss} ")
         # print(f"Ema down {is_ema_crossdown} ")
@@ -101,16 +89,9 @@ def get_buy_sell_signals(data, row, transaction_type):
         is_rsi_less_than_30 = latest_rsi < 30 
         is_slope_up = slope_ema_short > 0
         buy_condition1 = (is_rsi_in_range and is_ema_cross) or is_rsi_less_than_30
-        buy_condition = buy_condition1 and is_dmi_bullish and is_adx_strong  and  row['Close'] < latestprice # and is_slope_up
+        buy_condition = buy_condition1 and is_dmi_bullish and is_adx_strong  and  row['Close'] < latestprice and is_slope_up
         result = buy_condition
     return result
-
-# Add constants for each type of charge
-BROKERAGE_RATE = 0.0003 
-SEBI_CHARGE_RATE = 0.00000001 # 0.000001% 
-TRANSACTION_CHARGE_RATE = 0.0000375
-GST_RATE = 0.18  # 18%
-STAMP_DUTY_RATE = 0.00015 
 
 def calculate_charges(amount, transaction_type):
     brokerage = amount * BROKERAGE_RATE
@@ -139,87 +120,168 @@ def get_fibonacci_levels(df: pd.DataFrame) -> dict:
     }
     return levels
 
-def add_portfolio_symbols(scaned_symbols):
+def add_portfolio_symbols(portfolio, scaned_symbols):
+    # If portfolio is empty, return the original scaned_symbols list
+    if not portfolio:
+        return scaned_symbols
+
+    # If scaned_symbols is empty, initialize it with the symbols from the portfolio
+    if not scaned_symbols:
+        scaned_symbols = [{'Symbol': symbol, 'Close': 0, 'Bucket': portfolio[symbol]['Bucket']} for symbol in portfolio.keys()]
+        return scaned_symbols
+
     for symbol in portfolio.keys():
         if symbol not in [item['Symbol'] for item in scaned_symbols]:
-            scaned_symbols.append({'Symbol': symbol, 'Close': 0})
+            scaned_symbols.append({'Symbol': symbol, 'Close': 0, 'Bucket': portfolio[symbol]['Bucket']})
     return scaned_symbols
 
-#Validate portfolio
-current_balance=load_balance(balance_filename,current_balance)
-portfolio=load_portfolio(portfolio_filepath)
-analysed_symbols = pd.read_csv(filepath)
 
-dict_selected = analysed_symbols[['Symbol', 'Close']].to_dict('records')
-final_symbols=add_portfolio_symbols(dict_selected)
-totalstocks= len(final_symbols)
-
-while True:
-    try:     
-
-        if(ChecktotalBalance): 
-            calculate_balance(portfolio,current_balance)
-            break
-        
-        # Iterate over the data
-        for index, row in enumerate(final_symbols):
-        
-            scan_and_sleep(True,index,totalstocks,sleeptime)
-
-            ticker = yf.Ticker(row['Symbol'])
-            data = ticker.history(period="2d",interval="15m")
-            #print(data.tail())
-            data =calculate_technical_indicators(data)
-
-            latestprice = data["Close"].iloc[-1]
-            levels = get_fibonacci_levels(data)
-
-            if row['Symbol'] in portfolio:
-
-                sell_condition = get_buy_sell_signals(data,row,"Sell")                
-                portfolio[row['Symbol']]['stop_loss'] = max(portfolio[row['Symbol']]['stop_loss'], (latestprice * stop_loss_multiplier),levels["support"])
-                
-                # Check if the current price is below our stop-loss price or above our sell target price
-                if sell_condition:
-
-                    Amount=(latestprice*portfolio[row['Symbol']]['Quantity'])
-                    Additional_charges=calculate_charges(Amount,"sell")
-
-                    profit_or_loss = ((latestprice - portfolio[row['Symbol']]['buy_price']) * portfolio[row['Symbol']]['Quantity'])- Additional_charges
-
-                    trades = pd.concat([trades, pd.DataFrame({'Symbol': [row['Symbol']], 'Date': [datetime.now()], 'Action': ['Sell'], 'Price': [latestprice], 'Shares': [portfolio[row['Symbol']]['Quantity']],'TradeValue':[Amount],'Taxes':[Additional_charges]})], ignore_index=True)
-                    current_balance += (Amount-Additional_charges)
-
-                    print(f"sell Trade of {row['Symbol']} price {latestprice} shares {portfolio[row['Symbol']]['Quantity']} total: {profit_or_loss} current balance: {current_balance}")
-                    del portfolio[row['Symbol']]
-                    del prev_ema[row['Symbol']]
-            else:
-                buy_condition = get_buy_sell_signals(data,row,"Buy")      
-                if buy_condition:
-                    desired_number_of_stocks =amount_per_trade/latestprice
-                    stock_amount= (latestprice * desired_number_of_stocks)
-                    if(current_balance > stock_amount):
-                        
-                        Additional_charges=calculate_charges(stock_amount,"buy")
-
-                        trades = pd.concat([trades, pd.DataFrame({'Symbol': [row['Symbol']], 'Date': [datetime.now()], 'Action': ['Buy'], 'Price': [latestprice], 'Shares': [desired_number_of_stocks],'TradeValue':[stock_amount],'Taxes':[Additional_charges]})], ignore_index=True)
-                        portfolio[row['Symbol']] = {'buy_price': latestprice, 'stop_loss': latestprice * stop_loss_multiplier, 'sell_target': latestprice * sell_target_multiplier,'Quantity':desired_number_of_stocks}
-                        
-                        current_balance -= stock_amount+Additional_charges
-
-                        print(f"Buy Trade of {row['Symbol']} price {latestprice} shares {desired_number_of_stocks} total: {(latestprice * desired_number_of_stocks)} current balance: {current_balance}")
-
-     
-        save_trade(trades)
-        save_balance(current_balance)
-
-        # Reset trade object
-        trades = pd.DataFrame(columns=['Symbol', 'Date', 'Action', 'Price', 'Shares','TradeValue','Taxes'])
-
+def saveportfolio(portfolio,portfolio_filepath):
         portfolio_df = pd.DataFrame(portfolio).T
         portfolio_df.to_csv(portfolio_filepath, index=True)
-        
-        scan_and_sleep(False,0,0,sleeptime)
-        
-    except Exception as e:
-        print(f"An error occurred: {e}")
+
+def load_intials(bucket,current_balance,tickerlist,portfolio_filepath,balance_filename):
+    #Validate portfolio
+    current_balance=load_balance(balance_filename,current_balance)
+    portfolio=load_portfolio(portfolio_filepath)
+    final_symbols=add_portfolio_symbols(portfolio,tickerlist)
+    return final_symbols,portfolio,current_balance
+
+analysed_symbols = pd.read_csv(filepath)
+dict_selected = analysed_symbols[['Symbol', 'Close','Bucket']].to_dict('records')
+
+def calculate_balance(c,bucket):
+    
+    portfolio_filepath = f'Portfolios/portfolio_{bucket}.csv'
+    balance_filename = f"Balance/balance_{bucket}.txt"
+    tradefile=f'Trades/trades{bucket}_{year_month}.csv'
+
+    current_balance=0
+    tickerlist,portfolio,current_balance =load_intials(bucket,current_balance,{},portfolio_filepath,balance_filename)
+    
+    total_value = 0
+    for symbol in portfolio.keys():
+        #print(symbol)
+        ticker = yf.Ticker(symbol)
+        current_price = ticker.history(period="1d")["Close"].iloc[-1]
+        total_value += portfolio[symbol]['Quantity'] * current_price
+    print(f" Bucket {bucket} Cash: {current_balance} Stock {total_value} Total Balance is: {total_value+current_balance}")
+
+def trade(bucket,current_balance,investpercentage,ClosePortfolio,tickerlist):
+    
+    portfolio_filepath = f'Portfolios/portfolio_{bucket}.csv'
+    balance_filename = f"Balance/balance_{bucket}.txt"
+    tradefile=f'Trades/trades{bucket}_{year_month}.csv'
+
+    amount_per_trade = current_balance*investpercentage//1
+    tickerlist,portfolio,current_balance =load_intials(bucket,current_balance,tickerlist,portfolio_filepath,balance_filename)
+    
+    totalstocks= len(tickerlist)
+
+    while True:
+        try:     
+            # Iterate over the data
+            for index, row in enumerate(tickerlist):
+            
+                scan_and_sleep(True,index,totalstocks,sleeptime)
+
+                ticker = yf.Ticker(row['Symbol'])
+                data = ticker.history(period="2d",interval="15m")
+                #print(data.tail())
+                data =calculate_technical_indicators(data)
+
+                latestprice = data["Close"].iloc[-1]
+                levels = get_fibonacci_levels(data)
+
+                if row['Symbol'] in portfolio:
+
+                    if(ClosePortfolio== True):
+                        sell_condition = True
+                    else:
+                        sell_condition = get_buy_sell_signals(data,row,"Sell",portfolio)
+
+                    portfolio[row['Symbol']]['stop_loss'] = max(portfolio[row['Symbol']]['stop_loss'], (latestprice * stop_loss_multiplier),levels["support"])
+                    
+                    # Check if the current price is below our stop-loss price or above our sell target price
+                    if sell_condition:
+
+                        Amount=(latestprice*portfolio[row['Symbol']]['Quantity'])
+                        Additional_charges=calculate_charges(Amount,"sell")
+
+                        profit_or_loss = ((latestprice - portfolio[row['Symbol']]['buy_price']) * portfolio[row['Symbol']]['Quantity'])- Additional_charges
+                        _trades = pd.DataFrame({'Bucket':bucket,'Symbol': [row['Symbol']], 'Date': [datetime.now()], 'Action': ['Sell'], 'Price': [latestprice], 'Shares': [portfolio[row['Symbol']]['Quantity']],'TradeValue':[Amount],'Taxes':[Additional_charges]}) 
+                        
+                        current_balance += (Amount-Additional_charges)
+                        save_trade(_trades,tradefile)
+
+                        print(f"sell {bucket}  {row['Symbol']} price {latestprice} shares {portfolio[row['Symbol']]['Quantity']} total: {profit_or_loss} current balance: {current_balance}")
+                        del portfolio[row['Symbol']]
+                        del prev_ema[row['Symbol']]
+                else:
+                         
+                    if(ClosePortfolio== True):
+                        buy_condition = False 
+                    else:
+                        buy_condition = get_buy_sell_signals(data,row,"Buy",portfolio)
+
+                    if buy_condition:
+                        desired_number_of_stocks = (amount_per_trade/latestprice)//1
+                        stock_amount= (latestprice * desired_number_of_stocks)
+                        if(current_balance > stock_amount and desired_number_of_stocks>0):
+                            
+                            Additional_charges=calculate_charges(stock_amount,"buy")
+                            _trades = pd.DataFrame({'Bucket':bucket,'Symbol': [row['Symbol']], 'Date': [datetime.now()], 'Action': ['Buy'], 'Price': [latestprice], 'Shares': [desired_number_of_stocks],'TradeValue':[stock_amount],'Taxes':[Additional_charges]})
+                            save_trade(_trades,tradefile)
+    
+                            portfolio[row['Symbol']] = {'buy_price': latestprice, 'stop_loss': latestprice * stop_loss_multiplier, 'sell_target': latestprice * sell_target_multiplier,'Quantity':desired_number_of_stocks,'Bucket':row['Bucket']}
+                            #print(portfolio)
+                            current_balance -= stock_amount+Additional_charges
+                            print(f"Buy {bucket} {row['Symbol']} price {latestprice} shares {desired_number_of_stocks} total: {(latestprice * desired_number_of_stocks)} current balance: {current_balance}")
+
+
+                saveportfolio(portfolio,portfolio_filepath)
+                save_balance(current_balance,balance_filename)
+           
+            scan_and_sleep(False,0,0,sleeptime)
+            
+        except Exception as e:
+             print(f"An error occurred: {repr(e)}")
+
+def main():
+
+        enabled_scan_types = get_enabled_scan_types()
+        #print(enabled_scan_types)
+
+        buckets = []
+
+        if enabled_scan_types:
+            for scan_type in enabled_scan_types:
+                buckets.append(scan_type["bucket"])
+
+        processes = []
+        for bucket in buckets:
+            
+            bucket_obj = [obj for obj in enabled_scan_types if obj['bucket'] == bucket]
+            
+            # Filter symbols based on the bucket
+            filtered_stocks = [item for item in dict_selected if item['Bucket'] == bucket]
+
+            ClosePortfolio = bucket_obj[0]['ClosePortfolio']
+            Intial_Balance = bucket_obj[0]['Intial_Balance']
+            investpercentage = bucket_obj[0]['investpercentage']
+            #print(bucket)
+            if ChecktotalBalance:
+                process = multiprocessing.Process(target=calculate_balance, args=(0,bucket))
+            else:
+                # Create a new process for each bucket
+                process = multiprocessing.Process(target=trade, args=(bucket, Intial_Balance,investpercentage,ClosePortfolio,filtered_stocks))
+            processes.append(process)
+            process.start()
+
+        # Wait for all processes to finish
+        for process in processes:
+            process.join()
+
+if __name__ == '__main__':
+    main()
+    

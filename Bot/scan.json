@@ -3,24 +3,53 @@
     {
       "bucket":"Nifty100",
       "Index":"^CNX100",
-      "IsEnabled":true
+      "IsEnabled":true,
+      "investpercentage":0.05,
+      "ClosePortfolio":false,
+      "Intial_Balance": 1000000
     },
     {
         "bucket":"NiftyMicroCap250",
         "Index":"NIFTY_MICROCAP250.NS",
-        "IsEnabled":true
-      },
-      {
-        "bucket":"Custom",
-        "Index":"^CNX100",
-        "IsEnabled":false
-      }   
+        "IsEnabled":true,
+        "investpercentage":0.01,
+        "ClosePortfolio":false,
+        "Intial_Balance": 100000
+    },
+    {
+        "bucket":"Niftysmallcap100",
+        "Index":"^CNXSC",
+        "IsEnabled":true,
+        "investpercentage":0.01,
+        "ClosePortfolio":false,
+        "Intial_Balance": 300000
+    }, 
+    {
+      "bucket":"NIFTYMIDCAP100",
+      "Index":"^CRSMID",
+      "IsEnabled":true,
+      "investpercentage":0.02,
+      "ClosePortfolio":false,
+      "Intial_Balance": 400000
+  } 
+
+    
 ],
 "Variables":[
 {
   "CheckBalance":false,
   "RunAnalysis":true,
-  "sleeptime":180
+  "sleeptime":80,
+  "newsextractcount":1,
+  "extraxtglobalnews":false,
+  "strenghtfilter":0.20,
+  "BROKERAGE_RATE": 0.0003,
+  "SEBI_CHARGE_RATE":0.00000001,
+  "TRANSACTION_CHARGE_RATE":0.0000375,
+  "GST_RATE" :0.18,
+  "STAMP_DUTY_RATE":0.00015,
+  "stop_loss_multiplier":0.98,
+  "sell_target_multiplier": 1.01
 }
 ]
 }

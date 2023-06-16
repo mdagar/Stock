@@ -5,6 +5,15 @@ import yfinance as yf
 import time
 import csv
 import json
+import multiprocessing
+
+def get_enabled_scan_types():
+        with open('scan.json') as file:
+            data = json.load(file)
+            if "ScanType" in data:
+                scan_types = data["ScanType"]
+                enabled_scan_types = [scan for scan in scan_types if scan.get("IsEnabled", True)]
+                return enabled_scan_types
 
 def get_scan_type():
     index =""
@@ -44,28 +53,18 @@ def get_variable(variablename):
       variable = parsed_data['Variables'][0][variablename]
     return variable
   
-def calculate_balance(portfolio, current_balance):
-    total_value = 0
-    for symbol in portfolio.keys():
-        #print(symbol)
-        ticker = yf.Ticker(symbol)
-        current_price = ticker.history(period="1d")["Close"].iloc[-1]
-        total_value += portfolio[symbol]['Quantity'] * current_price
-    print(f"Cash: {current_balance} Stock {total_value} Total Balance is: {total_value+current_balance}")
 
-def scan_and_sleep(isscanning, stocknumber, totalstocks,sleep_time=60):
+def scan_and_sleep(isscanning, stocknumber, totalstocks,sleep_time=60): 
+    process_name = multiprocessing.current_process().name
     if(isscanning):
-        print(f"Scanning stock {stocknumber}/{totalstocks}", end ='\r')
+        print(f"{process_name}-(Scanning {stocknumber}/{totalstocks}) --", end ='\r')
     else:
         for remaining in range(sleep_time, 0, -5):
-            print(f"Next Scan in .. {remaining}s ", end='\r')
+            print(f"{process_name} Next Scan in .. {remaining}s ", end='\r')
             time.sleep(5)
 
-
-
-
 def convertJson():
-    csv_file = 'niftymicrocap250_list.csv'
+    csv_file = 'ind_niftymidcap100list.csv'
     json_file = 'output.json'
     data = []
 
@@ -79,4 +78,20 @@ def convertJson():
         json.dump(data, file, indent=4)
 
     print("Conversion completed. JSON file created: ", json_file)
+
+#convertJson()
+
+def save_trade(trades,tradefile):
+    # Save trade information to CSV with today's date appended to the filename
+    if os.path.exists(tradefile):
+        existing_trades = pd.read_csv(tradefile)
+        all_trades = pd.concat([existing_trades, trades], ignore_index=True)
+        all_trades.to_csv(tradefile, index=False)
+    else:
+        trades.to_csv(tradefile,index=False)     
+
+def save_balance(current_balance,balance_filename):
+    # Save the updated balance to the file
+    with open(balance_filename, 'w') as file:
+       file.write(str(current_balance))
 
