@@ -37,7 +37,7 @@
 ],
 "Variables":[
 {
-  "CheckBalance":false,
+  "CheckBalance":true,
   "RunAnalysis":true,
   "sleeptime":80,
   "newsextractcount":1,

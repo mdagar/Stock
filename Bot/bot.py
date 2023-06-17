@@ -4,6 +4,7 @@ import yfinance as yf
 import talib as ta
 from utility import *
 import multiprocessing
+import sys
 
 # Initialize a DataFrame to hold trade information
 trades = pd.DataFrame(columns=['Symbol', 'Date', 'Action', 'Price', 'Shares','TradeValue','Taxes'])
@@ -11,9 +12,11 @@ trades = pd.DataFrame(columns=['Symbol', 'Date', 'Action', 'Price', 'Shares','Tr
 investpercentage= 0.05
 portfolio = {}
 
+if(len(sys.argv)>1):
+    ChecktotalBalance = eval(sys.argv[1].capitalize())    
+else:
+    ChecktotalBalance= get_variable("CheckBalance")
 
-ChecktotalBalance= get_variable("CheckBalance")
-#index, buckets = get_scan_type()
 stop_loss_multiplier = get_variable("stop_loss_multiplier")
 sell_target_multiplier = get_variable("sell_target_multiplier")
 sleeptime= get_variable("sleeptime")
@@ -250,8 +253,6 @@ def trade(bucket,current_balance,investpercentage,ClosePortfolio,tickerlist):
 def main():
 
         enabled_scan_types = get_enabled_scan_types()
-        #print(enabled_scan_types)
-
         buckets = []
 
         if enabled_scan_types:

@@ -10,6 +10,8 @@ import os
 import time
 from utility import *
 import multiprocessing
+import sys
+
 
 #Technical Indicators
 def add_technical_indicators(data):
@@ -336,7 +338,12 @@ def get_index_by_bucket(bucket,enabled_scan_types):
 def main():
 
     start_time = time.time()
-    runAnalysis= get_variable("RunAnalysis")
+
+    if(len(sys.argv)>1):
+        runAnalysis = eval(sys.argv[1].capitalize())    
+    else:
+        runAnalysis= get_variable("RunAnalysis")
+    
     extraxtglobalnews= get_variable("extraxtglobalnews")
     strenghtfilter= get_variable("strenghtfilter")
     newsextractcount= get_variable("newsextractcount")
@@ -363,7 +370,6 @@ def main():
 
         if(not runAnalysis):
             process = multiprocessing.Process(target=RunnewAnalysis, args=(stocklist, bucket,newsextractcount))
-            #RunnewAnalysis(stocklist,bucket,newsextractcount)
 
         if(runAnalysis):
             process = multiprocessing.Process(target=AnalyseStock, args=(index,stocklist,bucket,start_date,end_date,strenghtfilter))
