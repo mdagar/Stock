@@ -13,9 +13,9 @@ investpercentage= 0.05
 portfolio = {}
 
 if(len(sys.argv)>1):
-    ChecktotalBalance = eval(sys.argv[1].capitalize())    
+    RunBot = eval(sys.argv[1].capitalize())    
 else:
-    ChecktotalBalance= get_variable("CheckBalance")
+    RunBot= get_variable("RunBot")
 
 stop_loss_multiplier = get_variable("stop_loss_multiplier")
 sell_target_multiplier = get_variable("sell_target_multiplier")
@@ -271,7 +271,7 @@ def main():
             Intial_Balance = bucket_obj[0]['Intial_Balance']
             investpercentage = bucket_obj[0]['investpercentage']
             #print(bucket)
-            if ChecktotalBalance:
+            if not RunBot:
                 process = multiprocessing.Process(target=calculate_balance, args=(0,bucket))
             else:
                 # Create a new process for each bucket
