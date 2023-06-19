@@ -39,12 +39,18 @@ filepath=f'Analysis/result_{today}.csv'
 
 def calculate_technical_indicators(data):
     data['RSI'] = ta.RSI(data['Close'], timeperiod=14)
-    data['EMA_short'] = data['Close'].ewm(span=6, adjust=False).mean()  # 9-day EMA
-    data['EMA_long'] = data['Close'].ewm(span=9, adjust=False).mean()  # 21-day EMA
+    data['EMA_short'] = data['Close'].ewm(span=9, adjust=False).mean()  # 9-day EMA
+    data['EMA_long'] = data['Close'].ewm(span=12, adjust=False).mean()  # 21-day EMA
     data['DIp'] = ta.PLUS_DI(data['High'], data['Low'], data['Close'], timeperiod=14)
     data['DIn'] = ta.MINUS_DI(data['High'], data['Low'], data['Close'], timeperiod=14)
     data['ADX'] = ta.ADX(data['High'], data['Low'], data['Close'], timeperiod=14)
     data['ADXR'] = ta.ADXR(data['High'], data['Low'], data['Close'], timeperiod=14)
+    
+    #Calculate MACD
+    data['MACD'], data['MACD_Signal'], data['MACD_Hist'] = ta.MACD(data['Close'], fastperiod=12, slowperiod=26, signalperiod=9)
+    # Calculate Bollinger Bands
+    data['BB_Upper'], data['BB_middle'], data['BB_Lower'] = ta.BBANDS(data['Close'], timeperiod=20)
+
     return data
 
 def get_buy_sell_signals(data, row, transaction_type,portfolio):
@@ -54,6 +60,13 @@ def get_buy_sell_signals(data, row, transaction_type,portfolio):
     latest_din = data['DIn'].iloc[-1]
     latest_adx = data['ADX'].iloc[-1]
 
+    latest_macd = data['MACD'].iloc[-1]
+    latest_signal = data['MACD_Signal'].iloc[-1]
+    upper_band = data['BB_Upper'].iloc[-1]
+    lower_band = data['BB_Lower'].iloc[-1]
+    latest_close = data['Close'].iloc[-1]
+
+
     is_dmi_bullish = latest_dip > latest_din
     is_dmi_bearish = latest_dip < latest_din
     is_adx_strong = latest_adx > 25
@@ -61,6 +74,16 @@ def get_buy_sell_signals(data, row, transaction_type,portfolio):
     latest_ema_short = data['EMA_short'].iloc[-1]
     latest_ema_long = data['EMA_long'].iloc[-1]
     latest_rsi = data['RSI'].iloc[-1]
+
+    #MACD conditions
+    is_macd_bullish = latest_macd > latest_signal
+    is_macd_bearish = latest_macd < latest_signal
+
+    # Bollinger Bands conditions
+    is_touching_upper_band = latest_close >= upper_band
+    is_touching_lower_band = latest_close <= lower_band
+
+
 
     #print(f"Stock {row['Symbol']}, DIP: {latest_dip} DIN: {latest_din} ADX: {latest_adx}")
 
@@ -72,28 +95,37 @@ def get_buy_sell_signals(data, row, transaction_type,portfolio):
 
     if(transaction_type=="Sell"):
 
+
         is_rsi_overbought = latest_rsi > 70
         is_price_above_sell_target = latestprice >= portfolio[row['Symbol']]['sell_target']
         is_price_below_stop_loss = latestprice <= portfolio[row['Symbol']]['stop_loss']
         is_ema_crossdown = latest_ema_short < latest_ema_long   
-        is_slope_down = slope_ema_short < 0           
-        sell_condition1 = (is_rsi_overbought or is_price_above_sell_target or is_price_below_stop_loss or is_ema_crossdown) and is_slope_down
-        sell_condition = (sell_condition1 and is_dmi_bearish and is_adx_strong) or is_price_below_stop_loss
+        is_slope_down = slope_ema_short < 0      
 
-        # print(f"RSI over: {is_rsi_overbought} , Price above Tgt: {is_price_above_sell_target} below stoploss: {is_price_below_stop_loss} ")
-        # print(f"Ema down {is_ema_crossdown} ")
-        # print(f"----- {sell_condition}")
 
-        result= sell_condition
+        #Include the new MACD and Bollinger Bands conditions in your existing logic
+        sell_condition1 = (is_rsi_overbought or is_price_above_sell_target or is_price_below_stop_loss or is_ema_crossdown or is_macd_bearish) and is_slope_down
+        sell_condition = (sell_condition1 and is_dmi_bearish and is_adx_strong) or is_price_below_stop_loss or is_touching_upper_band
+        result = sell_condition    
+
+        # sell_condition1 = (is_rsi_overbought or is_price_above_sell_target or is_price_below_stop_loss or is_ema_crossdown) and is_slope_down
+        # sell_condition = (sell_condition1 and is_dmi_bearish and is_adx_strong) or is_price_below_stop_loss
+        #result= sell_condition
     else:
         # Define buy conditions
         is_rsi_in_range = 30 < latest_rsi < 70
         is_ema_cross = latest_ema_short > latest_ema_long
         is_rsi_less_than_30 = latest_rsi < 30 
         is_slope_up = slope_ema_short > 0
-        buy_condition1 = (is_rsi_in_range and is_ema_cross) or is_rsi_less_than_30
-        buy_condition = buy_condition1 and is_dmi_bullish and is_adx_strong  and  row['Close'] < latestprice and is_slope_up
+
+        buy_condition1 = ((is_rsi_in_range and is_ema_cross) or is_rsi_less_than_30 or is_macd_bullish) and is_slope_up
+        buy_condition = buy_condition1 and is_dmi_bullish and is_adx_strong and row['Close'] < latestprice and is_touching_lower_band
         result = buy_condition
+
+        # buy_condition1 = (is_rsi_in_range and is_ema_cross) or is_rsi_less_than_30
+        # buy_condition = buy_condition1 and is_dmi_bullish and is_adx_strong  and  row['Close'] < latestprice and is_slope_up
+        # result = buy_condition
+        
     return result
 
 def calculate_charges(amount, transaction_type):

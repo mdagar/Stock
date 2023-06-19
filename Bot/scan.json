@@ -39,7 +39,7 @@
 {
   "RunBot":true,
   "RunAnalysis":true,
-  "sleeptime":80,
+  "sleeptime":120,
   "newsextractcount":1,
   "extraxtglobalnews":false,
   "strenghtfilter":0.20,
