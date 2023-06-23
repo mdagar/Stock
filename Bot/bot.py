@@ -98,17 +98,18 @@ def get_buy_sell_signals(data, row, transaction_type,portfolio):
         result = sell_condition
     else:
         # Define buy conditions
-        if(latest_close>row["close"]):
-            return False
-        is_rsi_in_range = 30 < latest_rsi < 70
-        is_ema_cross = latest_ema_short > latest_ema_long
-        is_slope_up = slope_ema_short > 0
-        is_macd_cross = latest_macd > latest_signal
-        bb_range_20_percent = middle_band + 0.25 * (upper_band - middle_band)
-        is_price_in_bb_range = middle_band <= latest_close <= bb_range_20_percent
-        buy_condition1 = ((is_rsi_in_range and is_ema_cross)) and is_slope_up
-        buy_condition = buy_condition1 and is_dmi_bullish and is_adx_strong and is_macd_cross  and is_price_in_bb_range
-        result = buy_condition
+        if(latest_close<row["Close"]):
+            result = False
+        else:
+            is_rsi_in_range = 30 < latest_rsi < 70
+            is_ema_cross = latest_ema_short > latest_ema_long
+            is_slope_up = slope_ema_short > 0
+            is_macd_cross = latest_macd > latest_signal
+            bb_range_20_percent = middle_band + 0.25 * (upper_band - middle_band)
+            is_price_in_bb_range = middle_band <= latest_close <= bb_range_20_percent
+            buy_condition1 = ((is_rsi_in_range and is_ema_cross)) and is_slope_up
+            buy_condition = buy_condition1 and is_dmi_bullish and is_adx_strong and is_macd_cross  and is_price_in_bb_range
+            result = buy_condition
     return result
 
 def calculate_charges(amount, transaction_type):
@@ -206,7 +207,7 @@ def trade(bucket,current_balance,investpercentage,ClosePortfolio,tickerlist):
                 print("Market not started yet")
                 scan_and_sleep(False,0,totalstocks,int(time_to_wait))
                 continue
-            if (current_time.hour > 15 or (current_time.hour == 15 and current_time.minute >= 35)):
+            if (current_time.hour > 15 or (current_time.hour == 15 and current_time.minute >= 29)):
                 print("\n Market closed.......")
                 break
 
