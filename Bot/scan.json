@@ -39,7 +39,7 @@
 {
   "RunBot":true,
   "RunAnalysis":true,
-  "sleeptime":120,
+  "sleeptime":180,
   "newsextractcount":1,
   "extraxtglobalnews":false,
   "strenghtfilter":0.20,
@@ -48,7 +48,7 @@
   "TRANSACTION_CHARGE_RATE":0.0000375,
   "GST_RATE" :0.18,
   "STAMP_DUTY_RATE":0.00015,
-  "stop_loss_multiplier":0.98,
+  "stop_loss_multiplier":0.99,
   "sell_target_multiplier": 1.01
 }
 ]

@@ -1,10 +1,13 @@
 import pandas as pd
 from datetime import datetime
+import time
 import yfinance as yf
 import talib as ta
 from utility import *
 import multiprocessing
 import sys
+import pytz
+
 
 # Initialize a DataFrame to hold trade information
 trades = pd.DataFrame(columns=['Symbol', 'Date', 'Action', 'Price', 'Shares','TradeValue','Taxes'])
@@ -45,16 +48,11 @@ def calculate_technical_indicators(data):
     data['DIn'] = ta.MINUS_DI(data['High'], data['Low'], data['Close'], timeperiod=14)
     data['ADX'] = ta.ADX(data['High'], data['Low'], data['Close'], timeperiod=14)
     data['ADXR'] = ta.ADXR(data['High'], data['Low'], data['Close'], timeperiod=14)
-    
-    #Calculate MACD
     data['MACD'], data['MACD_Signal'], data['MACD_Hist'] = ta.MACD(data['Close'], fastperiod=12, slowperiod=26, signalperiod=9)
-    # Calculate Bollinger Bands
     data['BB_Upper'], data['BB_middle'], data['BB_Lower'] = ta.BBANDS(data['Close'], timeperiod=20)
-
     return data
 
 def get_buy_sell_signals(data, row, transaction_type,portfolio):
-
     result = True
     latest_dip = data['DIp'].iloc[-1]
     latest_din = data['DIn'].iloc[-1]
@@ -66,7 +64,6 @@ def get_buy_sell_signals(data, row, transaction_type,portfolio):
     lower_band = data['BB_Lower'].iloc[-1]
     latest_close = data['Close'].iloc[-1]
 
-
     is_dmi_bullish = latest_dip > latest_din
     is_dmi_bearish = latest_dip < latest_din
     is_adx_strong = latest_adx > 25
@@ -74,58 +71,44 @@ def get_buy_sell_signals(data, row, transaction_type,portfolio):
     latest_ema_short = data['EMA_short'].iloc[-1]
     latest_ema_long = data['EMA_long'].iloc[-1]
     latest_rsi = data['RSI'].iloc[-1]
-
-    #MACD conditions
-    is_macd_bullish = latest_macd > latest_signal
+    middle_band = data['BB_middle'].iloc[-1]
     is_macd_bearish = latest_macd < latest_signal
-
-    # Bollinger Bands conditions
     is_touching_upper_band = latest_close >= upper_band
-    is_touching_lower_band = latest_close <= lower_band
-
-
-
-    #print(f"Stock {row['Symbol']}, DIP: {latest_dip} DIN: {latest_din} ADX: {latest_adx}")
-
+ 
     if row['Symbol'] in prev_ema:
         slope_ema_short = (latest_ema_short - prev_ema[row['Symbol']]) / time_period
     else:
         slope_ema_short = 0  # or some other default value
-        prev_ema[row['Symbol']] = latest_ema_short
+    prev_ema[row['Symbol']] = latest_ema_short
 
     if(transaction_type=="Sell"):
-
-
         is_rsi_overbought = latest_rsi > 70
         is_price_above_sell_target = latestprice >= portfolio[row['Symbol']]['sell_target']
+        if (is_price_above_sell_target or is_touching_upper_band):
+            portfolio[row['Symbol']]['sell_target'] = 1.005 * latestprice  # update target to 0.5% of latest price
+            portfolio[row['Symbol']]['stop_loss'] = 0.997 * latestprice  # update stop loss to 0.5% below latest price
+
         is_price_below_stop_loss = latestprice <= portfolio[row['Symbol']]['stop_loss']
         is_ema_crossdown = latest_ema_short < latest_ema_long   
-        is_slope_down = slope_ema_short < 0      
-
+        is_slope_down = slope_ema_short < 0   
 
         #Include the new MACD and Bollinger Bands conditions in your existing logic
-        sell_condition1 = (is_rsi_overbought or is_price_above_sell_target or is_price_below_stop_loss or is_ema_crossdown or is_macd_bearish) and is_slope_down
-        sell_condition = (sell_condition1 and is_dmi_bearish and is_adx_strong) or is_price_below_stop_loss or is_touching_upper_band
-        result = sell_condition    
-
-        # sell_condition1 = (is_rsi_overbought or is_price_above_sell_target or is_price_below_stop_loss or is_ema_crossdown) and is_slope_down
-        # sell_condition = (sell_condition1 and is_dmi_bearish and is_adx_strong) or is_price_below_stop_loss
-        #result= sell_condition
+        sell_condition1 = (is_rsi_overbought or is_ema_crossdown or is_macd_bearish) and is_slope_down
+        sell_condition = (sell_condition1 and is_dmi_bearish and is_adx_strong) or is_price_below_stop_loss
+        result = sell_condition
     else:
         # Define buy conditions
+        if(latest_close>row["close"]):
+            return False
         is_rsi_in_range = 30 < latest_rsi < 70
         is_ema_cross = latest_ema_short > latest_ema_long
-        is_rsi_less_than_30 = latest_rsi < 30 
         is_slope_up = slope_ema_short > 0
-
-        buy_condition1 = ((is_rsi_in_range and is_ema_cross) or is_rsi_less_than_30 or is_macd_bullish) and is_slope_up
-        buy_condition = buy_condition1 and is_dmi_bullish and is_adx_strong and row['Close'] < latestprice and is_touching_lower_band
+        is_macd_cross = latest_macd > latest_signal
+        bb_range_20_percent = middle_band + 0.25 * (upper_band - middle_band)
+        is_price_in_bb_range = middle_band <= latest_close <= bb_range_20_percent
+        buy_condition1 = ((is_rsi_in_range and is_ema_cross)) and is_slope_up
+        buy_condition = buy_condition1 and is_dmi_bullish and is_adx_strong and is_macd_cross  and is_price_in_bb_range
         result = buy_condition
-
-        # buy_condition1 = (is_rsi_in_range and is_ema_cross) or is_rsi_less_than_30
-        # buy_condition = buy_condition1 and is_dmi_bullish and is_adx_strong  and  row['Close'] < latestprice and is_slope_up
-        # result = buy_condition
-        
     return result
 
 def calculate_charges(amount, transaction_type):
@@ -170,7 +153,6 @@ def add_portfolio_symbols(portfolio, scaned_symbols):
             scaned_symbols.append({'Symbol': symbol, 'Close': 0, 'Bucket': portfolio[symbol]['Bucket']})
     return scaned_symbols
 
-
 def saveportfolio(portfolio,portfolio_filepath):
         portfolio_df = pd.DataFrame(portfolio).T
         portfolio_df.to_csv(portfolio_filepath, index=True)
@@ -212,9 +194,22 @@ def trade(bucket,current_balance,investpercentage,ClosePortfolio,tickerlist):
     tickerlist,portfolio,current_balance =load_intials(bucket,current_balance,tickerlist,portfolio_filepath,balance_filename)
     
     totalstocks= len(tickerlist)
+    ist = pytz.timezone('Asia/Kolkata')
 
     while True:
         try:     
+            current_time = datetime.now(ist)
+            # If it's before 9:15 AM, print market not started
+            if (current_time.hour < 9 or (current_time.hour == 9 and current_time.minute < 15)):
+                market_open_time = current_time.replace(hour=9, minute=15, second=0, microsecond=0)
+                time_to_wait = (market_open_time - current_time).total_seconds()
+                print("Market not started yet")
+                scan_and_sleep(False,0,totalstocks,int(time_to_wait))
+                continue
+            if (current_time.hour > 15 or (current_time.hour == 15 and current_time.minute >= 35)):
+                print("\n Market closed.......")
+                break
+
             # Iterate over the data
             for index, row in enumerate(tickerlist):
             
@@ -272,7 +267,6 @@ def trade(bucket,current_balance,investpercentage,ClosePortfolio,tickerlist):
                             #print(portfolio)
                             current_balance -= stock_amount+Additional_charges
                             print(f"Buy {bucket} {row['Symbol']} price {latestprice} shares {desired_number_of_stocks} total: {(latestprice * desired_number_of_stocks)} current balance: {current_balance}")
-
 
                 saveportfolio(portfolio,portfolio_filepath)
                 save_balance(current_balance,balance_filename)
