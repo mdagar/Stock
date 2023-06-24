@@ -84,9 +84,12 @@ def get_buy_sell_signals(data, row, transaction_type,portfolio):
     if(transaction_type=="Sell"):
         is_rsi_overbought = latest_rsi > 70
         is_price_above_sell_target = latestprice >= portfolio[row['Symbol']]['sell_target']
-        if (is_price_above_sell_target or is_touching_upper_band):
+        new_stop_loss = 0.997 * latestprice  # proposed new stop loss
+
+        if (is_price_above_sell_target or is_touching_upper_band) and new_stop_loss > portfolio[row['Symbol']]['stop_loss']:
+
             portfolio[row['Symbol']]['sell_target'] = 1.005 * latestprice  # update target to 0.5% of latest price
-            portfolio[row['Symbol']]['stop_loss'] = 0.997 * latestprice  # update stop loss to 0.5% below latest price
+            portfolio[row['Symbol']]['stop_loss'] = new_stop_loss
 
         is_price_below_stop_loss = latestprice <= portfolio[row['Symbol']]['stop_loss']
         is_ema_crossdown = latest_ema_short < latest_ema_long   
@@ -98,7 +101,7 @@ def get_buy_sell_signals(data, row, transaction_type,portfolio):
         result = sell_condition
     else:
         # Define buy conditions
-        if(latest_close<row["Close"]):
+        if(latest_close < row["Close"]):
             result = False
         else:
             is_rsi_in_range = 30 < latest_rsi < 70
