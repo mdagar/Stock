@@ -26,14 +26,12 @@
     }, 
     {
       "bucket":"NIFTYMIDCAP100",
-      "Index":"^CRSMID",
+      "Index":"NIFTY_MIDCAP_100.NS",
       "IsEnabled":true,
       "investpercentage":0.02,
       "ClosePortfolio":false,
       "Intial_Balance": 400000
   } 
-
-    
 ],
 "Variables":[
 {
@@ -48,8 +46,8 @@
   "TRANSACTION_CHARGE_RATE":0.0000375,
   "GST_RATE" :0.18,
   "STAMP_DUTY_RATE":0.00015,
-  "stop_loss_multiplier":0.99,
-  "sell_target_multiplier": 1.01
+  "stop_loss_multiplier":0.993,
+  "sell_target_multiplier": 1.03
 }
 ]
 }
